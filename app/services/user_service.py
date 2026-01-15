@@ -2,45 +2,74 @@
 """
 Servicio de Usuarios
 Contiene toda la lógica de negocio relacionada con usuarios
+Conecta con Supabase PostgreSQL
 """
 
-from app.models.user import User
+import os
+import httpx
 from app.utils.validators import validar_email, validar_string_no_vacio, sanitizar_string
 
-# Base de datos en memoria (temporal)
-users_db = [
-    User(id=1, nombre='Admin', email='admin@taskflow.com', rol='administrador'),
-    User(id=2, nombre='Juan Pérez', email='juan@email.com', rol='usuario')
-]
+# Configuración de Supabase
+SUPABASE_URL = os.getenv('SUPABASE_URL', '').rstrip('/')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY', '')
 
-# Contador para IDs
-next_user_id = 3
+# Headers para Supabase
+HEADERS = {
+    'Content-Type': 'application/json',
+    'Authorization': f'Bearer {SUPABASE_KEY}',
+    'apikey': SUPABASE_KEY,
+    'Prefer': 'return=representation'
+}
+
+# URL base para PostgREST
+REST_URL = f"{SUPABASE_URL}/rest/v1"
+
+print(f"DEBUG: SUPABASE_URL = {SUPABASE_URL}")
+print(f"DEBUG: SUPABASE_KEY = {'*' * 10 if SUPABASE_KEY else 'NO ENCONTRADA'}")
 
 
 def obtener_todos_usuarios():
     """
-    Obtiene todos los usuarios
+    Obtiene todos los usuarios desde Supabase
     
     Returns:
         list: Lista de todos los usuarios
     """
-    return [user.to_dict() for user in users_db]
+    try:
+        response = httpx.get(
+            f"{REST_URL}/users",
+            headers=HEADERS
+        )
+        if response.status_code == 200:
+            return response.json()
+        return []
+    except Exception as e:
+        print(f"Error al obtener usuarios: {e}")
+        return []
 
 
 def obtener_usuario_por_id(user_id):
     """
-    Obtiene un usuario por su ID
+    Obtiene un usuario por su ID desde Supabase
     
     Args:
-        user_id: ID del usuario a buscar
+        user_id: ID (UUID) del usuario
         
     Returns:
         dict: Datos del usuario o None si no existe
     """
-    for user in users_db:
-        if user.id == user_id:
-            return user.to_dict()
-    return None
+    try:
+        response = httpx.get(
+            f"{REST_URL}/users?id=eq.{user_id}",
+            headers=HEADERS
+        )
+        if response.status_code == 200:
+            data = response.json()
+            return data[0] if data else None
+        return None
+    except Exception as e:
+        print(f"Error al obtener usuario: {e}")
+        return None
 
 
 def obtener_usuario_por_email(email):
@@ -48,76 +77,102 @@ def obtener_usuario_por_email(email):
     Obtiene un usuario por su email
     
     Args:
-        email: Email del usuario a buscar
+        email: Email del usuario
         
     Returns:
-        User: Objeto User o None si no existe
+        dict: Datos del usuario o None si no existe
     """
-    for user in users_db:
-        if user.email == email:
-            return user
-    return None
+    try:
+        response = httpx.get(
+            f"{REST_URL}/users?email=eq.{email}",
+            headers=HEADERS
+        )
+        if response.status_code == 200:
+            data = response.json()
+            return data[0] if data else None
+        return None
+    except Exception as e:
+        print(f"Error al buscar por email: {e}")
+        return None
 
 
 def crear_usuario(data):
     """
-    Crea un nuevo usuario con validaciones
+    Crea un nuevo usuario en Supabase
     
     Args:
-        data: Diccionario con los datos del usuario
+        data: Diccionario con nombre, email, rol
         
     Returns:
         tuple: (usuario_dict, error_message)
-               Si exitoso: (datos_usuario, None)
-               Si error: (None, mensaje_error)
     """
-    global next_user_id
-    
-    # Validar que existan datos
-    if not data:
-        return None, "No se enviaron datos"
-    
-    # Validar nombre
-    nombre = sanitizar_string(data.get('nombre'))
-    if not validar_string_no_vacio(nombre):
-        return None, "El nombre es requerido y no puede estar vacío"
-    
-    # Validar email
-    email = sanitizar_string(data.get('email'))
-    if not validar_email(email):
-        return None, "El email no es válido"
-    
-    # Verificar email único
-    if obtener_usuario_por_email(email):
-        return None, "El email ya está registrado"
-    
-    # Validar rol (opcional)
-    rol = data.get('rol', 'usuario').lower()
-    roles_validos = ['administrador', 'usuario']
-    if rol not in roles_validos:
-        return None, f"El rol debe ser uno de: {', '.join(roles_validos)}"
-    
-    # Crear usuario
-    nuevo_usuario = User(
-        id=next_user_id,
-        nombre=nombre,
-        email=email,
-        rol=rol
-    )
-    
-    users_db.append(nuevo_usuario)
-    next_user_id += 1
-    
-    return nuevo_usuario.to_dict(), None
+    try:
+        # Validar datos
+        if not data:
+            return None, "No se enviaron datos"
+        
+        # Extraer campos
+        nombre_raw = data.get('nombre')
+        email_raw = data.get('email')
+        
+        if not nombre_raw:
+            return None, "El nombre es requerido"
+        if not email_raw:
+            return None, "El email es requerido"
+        
+        # Limpiar datos
+        nombre = sanitizar_string(nombre_raw)
+        email = sanitizar_string(email_raw)
+        
+        if not validar_string_no_vacio(nombre):
+            return None, "El nombre no puede estar vacío"
+        
+        if not validar_email(email):
+            return None, "El email no es válido"
+        
+        # Verificar email único
+        if obtener_usuario_por_email(email):
+            return None, "El email ya está registrado"
+        
+        rol = data.get('rol', 'usuario').lower()
+        roles_validos = ['administrador', 'usuario']
+        if rol not in roles_validos:
+            return None, f"Rol inválido. Debe ser: {', '.join(roles_validos)}"
+        
+        # Insertar en Supabase
+        nuevo_usuario = {
+            'nombre': nombre,
+            'email': email,
+            'rol': rol
+        }
+        response = httpx.post(
+            f"{REST_URL}/users",
+            headers=HEADERS,
+            json=nuevo_usuario
+        )
+        
+        if response.status_code == 201:
+            resultado = response.json()
+            return resultado[0] if isinstance(resultado, list) else resultado, None
+        elif response.status_code == 409:
+            return None, "El email ya está registrado en la base de datos"
+        else:
+            error_msg = f"Error Supabase ({response.status_code}): {response.text}"
+            print(f"DEBUG: {error_msg}")
+            return None, "Error al crear usuario"
+    except Exception as e:
+        error_msg = f"Excepción: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        return None, "Error interno al crear usuario"
 
 
 def actualizar_usuario(user_id, data):
     """
-    Actualiza un usuario existente
+    Actualiza un usuario en Supabase
     
     Args:
-        user_id: ID del usuario a actualizar
-        data: Diccionario con los datos a actualizar
+        user_id: ID del usuario
+        data: Datos a actualizar
         
     Returns:
         tuple: (usuario_dict, error_message)
@@ -125,73 +180,74 @@ def actualizar_usuario(user_id, data):
     if not data:
         return None, "No se enviaron datos"
     
-    # Buscar usuario
-    usuario = None
-    for user in users_db:
-        if user.id == user_id:
-            usuario = user
-            break
-    
-    if not usuario:
+    # Verificar que existe
+    if not obtener_usuario_por_id(user_id):
         return None, "Usuario no encontrado"
     
-    # Actualizar nombre si se envía
+    # Validar datos si se envían
     if 'nombre' in data:
         nombre = sanitizar_string(data['nombre'])
         if not validar_string_no_vacio(nombre):
             return None, "El nombre no puede estar vacío"
-        usuario.nombre = nombre
     
-    # Actualizar email si se envía
     if 'email' in data:
         email = sanitizar_string(data['email'])
         if not validar_email(email):
             return None, "El email no es válido"
         
-        # Verificar que el email no esté en uso por otro usuario
-        if email != usuario.email:
-            usuario_con_email = obtener_usuario_por_email(email)
-            if usuario_con_email:
-                return None, "El email ya está en uso"
-        
-        usuario.email = email
+        # Verificar unicidad
+        usuario_existente = obtener_usuario_por_email(email)
+        if usuario_existente and usuario_existente.get('id') != user_id:
+            return None, "El email ya está en uso"
     
-    # Actualizar rol si se envía
     if 'rol' in data:
         rol = data['rol'].lower()
-        roles_validos = ['administrador', 'usuario']
-        if rol not in roles_validos:
-            return None, f"El rol debe ser uno de: {', '.join(roles_validos)}"
-        usuario.rol = rol
+        if rol not in ['administrador', 'usuario']:
+            return None, "Rol inválido"
     
-    return usuario.to_dict(), None
+    # Actualizar en Supabase
+    try:
+        response = httpx.patch(
+            f"{REST_URL}/users?id=eq.{user_id}",
+            headers=HEADERS,
+            json=data
+        )
+        
+        if response.status_code == 200:
+            return response.json()[0] if isinstance(response.json(), list) else response.json(), None
+        else:
+            return None, f"Error: {response.text}"
+    except Exception as e:
+        return None, f"Error al actualizar: {str(e)}"
 
 
 def eliminar_usuario(user_id):
     """
-    Elimina un usuario
+    Elimina un usuario de Supabase
     
     Args:
-        user_id: ID del usuario a eliminar
+        user_id: ID del usuario
         
     Returns:
         tuple: (success, error_message)
     """
-    global users_db
-    
-    # Verificar si el usuario tiene tareas asignadas
+    # Verificar tareas asociadas
     from app.services.task_service import contar_tareas_por_usuario
-    
     if contar_tareas_por_usuario(user_id) > 0:
         return False, "No se puede eliminar un usuario con tareas asignadas"
     
-    # Buscar y eliminar usuario
-    for i, user in enumerate(users_db):
-        if user.id == user_id:
-            users_db.pop(i)
+    try:
+        response = httpx.delete(
+            f"{REST_URL}/users?id=eq.{user_id}",
+            headers=HEADERS
+        )
+        
+        if response.status_code == 204:
             return True, None
-    
-    return False, "Usuario no encontrado"
+        else:
+            return False, f"Error: {response.text}"
+    except Exception as e:
+        return False, f"Error al eliminar: {str(e)}"
 
 
 def verificar_usuario_existe(user_id):
@@ -199,9 +255,9 @@ def verificar_usuario_existe(user_id):
     Verifica si un usuario existe
     
     Args:
-        user_id: ID del usuario a verificar
+        user_id: ID del usuario
         
     Returns:
-        bool: True si existe, False en caso contrario
+        bool: True si existe
     """
     return obtener_usuario_por_id(user_id) is not None

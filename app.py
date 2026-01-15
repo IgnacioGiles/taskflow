@@ -48,6 +48,7 @@ if __name__ == '__main__':
     print("=" * 60 + "\n")
     
     # Arrancar servidor
+    app.run(host=app.config['HOST'], port=app.config['PORT'])
     app.run(
         host=app.config['HOST'],
         port=app.config['PORT'],

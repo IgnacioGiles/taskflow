@@ -24,7 +24,7 @@ def listar_usuarios():
     return jsonify(usuarios), 200
 
 
-@users_bp.route('/users/<int:user_id>', methods=['GET'])
+@users_bp.route('/users/<user_id>', methods=['GET'])
 def obtener_usuario(user_id):
     """
     GET /api/users/<id>
@@ -70,7 +70,7 @@ def crear_usuario():
     return jsonify(usuario), 201
 
 
-@users_bp.route('/users/<int:user_id>', methods=['PUT'])
+@users_bp.route('/users/<user_id>', methods=['PUT'])
 def actualizar_usuario(user_id):
     """
     PUT /api/users/<id>
@@ -100,7 +100,7 @@ def actualizar_usuario(user_id):
     return jsonify(usuario), 200
 
 
-@users_bp.route('/users/<int:user_id>', methods=['DELETE'])
+@users_bp.route('/users/<user_id>', methods=['DELETE'])
 def eliminar_usuario(user_id):
     """
     DELETE /api/users/<id>
@@ -121,7 +121,7 @@ def eliminar_usuario(user_id):
     return jsonify({'message': 'Usuario eliminado exitosamente'}), 200
 
 
-@users_bp.route('/users/<int:user_id>/tasks', methods=['GET'])
+@users_bp.route('/users/<user_id>/tasks', methods=['GET'])
 def obtener_tareas_usuario(user_id):
     """
     GET /api/users/<id>/tasks
@@ -143,7 +143,7 @@ def obtener_tareas_usuario(user_id):
     return jsonify(tareas), 200
 
 
-@users_bp.route('/users/<int:user_id>/stats', methods=['GET'])
+@users_bp.route('/users/<user_id>/stats', methods=['GET'])
 def obtener_estadisticas_usuario(user_id):
     """
     GET /api/users/<id>/stats
